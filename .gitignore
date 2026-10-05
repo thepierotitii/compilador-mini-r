@@ -19,6 +19,7 @@ env/
 
 # Exclusiones solicitadas
 docs/diseno_lexico.md
+test_grammar.py
 
 # Operating System files
 .DS_Store
