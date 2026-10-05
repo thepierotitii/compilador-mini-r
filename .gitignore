@@ -1,0 +1,26 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Caches and virtual environments
+.venv/
+venv/
+ENV/
+env/
+.pytest_cache/
+
+# ANTLR preview cache (from VS Code / IDE extensions)
+.antlr/
+
+# Antigravity assistant internal skills and agents
+.agents/
+.agent/
+
+# Exclusiones solicitadas
+docs/diseno_lexico.md
+
+# Operating System files
+.DS_Store
+Thumbs.db
+desktop.ini
