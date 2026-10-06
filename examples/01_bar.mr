@@ -1,0 +1,8 @@
+ventas = read("data/ventas.csv")
+resumen = ventas:
+    filter(total > 40)
+    groupby(cliente)
+    summarize(monto_total = sum(total))
+    sort(monto_total, "desc")
+
+plot bar(resumen) { x: cliente, y: monto_total, title: "Ventas Totales por Cliente" }

@@ -1,0 +1,3 @@
+ventas = read("data/ventas.csv")
+plot scatter(ventas) { x: precio, y: cantidad, title: "Relacion Precio vs Cantidad" }
+plot line(ventas) { x: cliente, y: total, title: "Evolucion de Ventas" }
