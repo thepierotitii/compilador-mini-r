@@ -1,0 +1,3 @@
+// Error Semantico 4: Intentar transformar (:) una variable escalar que no es un dataset
+limite = 100
+nuevo_df = limite: filter(total > 50)
