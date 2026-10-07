@@ -17,7 +17,7 @@ compilador-mini-r/
 │   │   ├── MiniRLexer.py
 │   │   ├── MiniRParser.py
 │   │   └── MiniRVisitor.py
-│   └── semantic_visitor.py              # Analizador semántico (recorrido del AST y tabla de símbolos)
+│   └── seman_visitor.py              # Analizador semántico (recorrido del AST y tabla de símbolos)
 ├── data/                                # Archivos de datos de entrada (.csv)
 │   └── ventas.csv
 ├── examples/                            # Programas de prueba en Mini-R (.mr)
@@ -64,11 +64,13 @@ compilador-mini-r/
 ## Instalación de Dependencias
 
 Con `pip` estándar:
+
 ```bash
 pip install -r requirements.txt
 ```
 
 Con `uv` (opcional / recomendado):
+
 ```bash
 uv venv
 uv pip install -r requirements.txt
@@ -79,7 +81,9 @@ uv pip install -r requirements.txt
 ## Uso y Ejecución
 
 ### 1. Regenerar el Código de ANTLR4 (Opcional)
+
 Si realizas modificaciones en la gramática `grammar/MiniR.g4`, puedes regenerar los lexers, parsers y visitors ejecutando:
+
 ```bash
 antlr4 -Dlanguage=Python3 -visitor -o src/generated grammar/MiniR.g4
 ```
@@ -87,6 +91,7 @@ antlr4 -Dlanguage=Python3 -visitor -o src/generated grammar/MiniR.g4
 ### 2. Ejecutar el Driver Principal (`main.py`)
 
 Para ejecutar la suite completa de programas de prueba en `examples/`:
+
 ```bash
 python main.py
 # O utilizando uv:
@@ -94,6 +99,7 @@ uv run python main.py
 ```
 
 Para analizar un archivo específico de Mini-R:
+
 ```bash
 python main.py examples/01_bar.mr
 # O utilizando uv:
@@ -108,4 +114,3 @@ uv run python main.py examples/01_bar.mr
 - [x] **Hito 1 (Semana 7):** Front-end inicial (Diseño léxico, gramática ANTLR4, derivaciones por la izquierda, semántica base de 2+ errores y driver simple).
 - [ ] **Hito 2 (Semana 12):** Expansión del compilador y manejo de al menos 6 errores semánticos.
 - [ ] **Hito 3 (Semana 15):** Back-end, generación de código e integración end-to-end.
-

@@ -3,30 +3,36 @@ import csv
 from antlr4 import *
 from src.generated.MiniRVisitor import MiniRVisitor
 from src.generated.MiniRParser import MiniRParser
+from src.symbol_table import SymbolTable, Symbol
 
-class SemanticVisitor(MiniRVisitor):
+
+class SemanVisitor(MiniRVisitor):
+    
     def __init__(self, base_path="."):
         super().__init__()
         self.base_path = base_path
-        
-        # tabla de simbolos: almacena identificadores ('dataset' o 'scalar')
-        self.symbol_table = {}
-        
-        # lista de errores semanticos detectados
+
+        # tabla de simbolos
+        self.table = SymbolTable()
+
+        # lista de errores
         self.errors = []
-        
-        # contexto activo durante una transformacion secuencial (:)
+
+        # transformaciones
         self.current_dataset_name = None
-        self.current_columns = None       # None indica esquema dinamico / archivo ausente
+        self.current_columns = None      
         self.current_group_cols = set()   # columnas agrupadas en groupby()
 
-    # metodos auxiliares de validacion y reporte
+    @property
+    def symbol_table(self):
+        return self.table.symbols
 
-    def add_error(self, node, message):
-        """registra un error semantico obteniendo linea y columna de forma segura."""
+    # metodos auxiliares
+
+    def add_error(self, node, message: str):
         line = 0
         col = 0
-        if hasattr(node, "symbol"):
+        if hasattr(node, "symbol") and node.symbol:
             line = node.symbol.line
             col = node.symbol.column
         elif hasattr(node, "start") and node.start:
@@ -39,63 +45,66 @@ class SemanticVisitor(MiniRVisitor):
             "message": message
         })
 
-    def check_column(self, node, col_name):
-        """verifica si una columna existe en el dataset activo."""
+    def check_column(self, node, col_name: str) -> bool:
+        """Verifica si una columna existe en el dataset activo del pipeline."""
         if self.current_columns is not None and col_name not in self.current_columns:
             self.add_error(
-                node, 
+                node,
                 f"La columna '{col_name}' no existe en el dataset '{self.current_dataset_name}'."
             )
             return False
         return True
 
     def extract_identifiers(self, ctx):
-        """recolecta de forma recursiva los identificadores (ID) dentro de una expresion."""
+        """Recolecta de forma recursiva los identificadores (ID) dentro de una expresión."""
         result = []
         if ctx is None:
             return result
 
-        # si el nodo es una llamada a funcion, validamos solo sus argumentos
+        # si el nodo es llamada a función validamos solo sus argumentos
         if hasattr(ctx, "exprList") and ctx.exprList():
             for sub in ctx.exprList().expr():
                 result.extend(self.extract_identifiers(sub))
             return result
 
-        # Si el nodo contiene directamente un primary con ID
+        # si contiene un identificador primario
         if hasattr(ctx, "primary") and ctx.primary() and ctx.primary().ID():
             result.append(ctx.primary().ID())
             return result
 
-        # Recorrer subárboles
+        # recorrer subarboles
         if hasattr(ctx, "children") and ctx.children:
             for child in ctx.children:
                 if isinstance(child, ParserRuleContext):
                     result.extend(self.extract_identifiers(child))
+
         return result
 
-    def validate_expression(self, expr_ctx, in_dataset=False):
-        """verifica que las variables usadas dentro de una expresion existan."""
+    def validate_expression(self, expr_ctx, in_dataset: bool = False):
         if expr_ctx is None:
             return
 
         for id_node in self.extract_identifiers(expr_ctx):
             name = id_node.getText()
             if in_dataset:
-                # en un pipeline, puede ser una columna del dataset o una variable escalar previa
                 is_col = (self.current_columns is None) or (name in self.current_columns)
-                is_scalar = (name in self.symbol_table and self.symbol_table[name]["type"] == "scalar")
+                is_scalar = self.table.exists(name) and self.table.lookup(name).is_scalar()
+
                 if not is_col and not is_scalar:
                     self.add_error(
-                        id_node, 
+                        id_node,
                         f"La columna o variable '{name}' no existe en el dataset '{self.current_dataset_name}'."
                     )
             else:
-                # fuera de un pipeline, debe existir en la tabla de simbolos
-                if name not in self.symbol_table:
+                try:
+                    self.table.lookup(name)
+                except ValueError:
                     self.add_error(
-                        id_node, 
+                        id_node,
                         f"La variable '{name}' no ha sido declarada previamente."
                     )
+
+    # reglas del visitador
 
     def visitProgram(self, ctx: MiniRParser.ProgramContext):
         for stmt in ctx.statement():
@@ -119,48 +128,51 @@ class SemanticVisitor(MiniRVisitor):
                 self.add_error(ctx, f"No se pudo leer el archivo '{file_path}': {str(e)}")
                 columns = set()
 
-        # registrar dataset en la tabla de simbolos
-        self.symbol_table[var_name] = {
-            "type": "dataset",
-            "source": file_path,
-            "columns": columns
-        }
+        # registro de los datos
+        self.table.declare(
+            name=var_name,
+            type_="dataset",
+            columns=columns,
+            source=file_path
+        )
         return None
 
     def visitAssignStmt(self, ctx: MiniRParser.AssignStmtContext):
         var_name = ctx.ID().getText()
         self.validate_expression(ctx.expr(), in_dataset=False)
-        self.symbol_table[var_name] = {"type": "scalar"}
+        self.table.declare(name=var_name, type_="scalar")
         return None
 
     def visitTransformStmt(self, ctx: MiniRParser.TransformStmtContext):
         target_name = ctx.ID(0).getText()
         source_name = ctx.ID(1).getText()
 
-        # validar existencia del dataset origen
-        if source_name not in self.symbol_table:
+        # validar dataset en tabla de simbolos
+        try:
+            source_symbol = self.table.lookup(source_name)
+        except ValueError:
             self.add_error(ctx.ID(1), f"El dataset '{source_name}' no ha sido declarado previamente.")
-            self.symbol_table[target_name] = {"type": "dataset", "columns": None}
+            self.table.declare(name=target_name, type_="dataset", columns=None)
             return None
 
-        source_info = self.symbol_table[source_name]
-        if source_info["type"] != "dataset":
+        if not source_symbol.is_dataset():
             self.add_error(ctx.ID(1), f"'{source_name}' no es un dataset y no puede ser transformado.")
             return None
 
-        # iniciar contexto de pipeline
+        # contexto del pipeline
         self.current_dataset_name = source_name
-        self.current_columns = set(source_info["columns"]) if source_info["columns"] is not None else None
+        self.current_columns = set(source_symbol.columns) if source_symbol.columns is not None else None
         self.current_group_cols = set()
 
         for op in ctx.transformOp():
             self.visit(op)
 
-        # registrar nuevo dataset con el esquema resultante
-        self.symbol_table[target_name] = {
-            "type": "dataset",
-            "columns": set(self.current_columns) if self.current_columns is not None else None
-        }
+        # registro del nuevo dataset
+        self.table.declare(
+            name=target_name,
+            type_="dataset",
+            columns=set(self.current_columns) if self.current_columns is not None else None
+        )
 
         # limpiar contexto
         self.current_dataset_name = None
@@ -178,7 +190,6 @@ class SemanticVisitor(MiniRVisitor):
             self.check_column(id_node, col)
             new_cols.add(col)
 
-        # select acota el esquema únicamente a las columnas elegidas
         if self.current_columns is not None:
             self.current_columns = new_cols
         return None
@@ -209,11 +220,9 @@ class SemanticVisitor(MiniRVisitor):
             agg_call = item.aggCall()
             source_col = agg_call.ID().getText()
 
-            # validar que la columna a resumir exista
             self.check_column(agg_call.ID(), source_col)
             summary_cols.add(new_col)
 
-        # summarize conserva las llaves de agrupación + las nuevas metricas calculadas
         if self.current_columns is not None:
             self.current_columns = self.current_group_cols | summary_cols
         return None
@@ -225,35 +234,37 @@ class SemanticVisitor(MiniRVisitor):
     def visitPlotStmt(self, ctx: MiniRParser.PlotStmtContext):
         dataset_name = ctx.ID(1).getText()
 
-        # validar existencia del dataset
-        if dataset_name not in self.symbol_table:
+        # Validar dataset en la tabla de símbolos
+        try:
+            dataset_symbol = self.table.lookup(dataset_name)
+        except ValueError:
             self.add_error(ctx.ID(1), f"El dataset '{dataset_name}' utilizado en plot no ha sido declarado.")
             return None
 
-        target_info = self.symbol_table[dataset_name]
-        if target_info["type"] != "dataset":
+        if not dataset_symbol.is_dataset():
             self.add_error(ctx.ID(1), f"'{dataset_name}' no es un dataset y no puede ser graficado.")
             return None
 
-        available_cols = target_info.get("columns")
+        available_cols = dataset_symbol.columns
         if available_cols is None or not ctx.plotPropertyList():
             return None
 
-        # validar propiedades x e y
+        # Validar propiedades x e y
         for prop in ctx.plotPropertyList().plotProperty():
-            # se usa ID(0) para obtener el identificador de la clave (x, y, etc.)
             prop_key = prop.ID(0).getText() if prop.ID(0) else ""
             if prop_key in ("x", "y") and prop.getChildCount() >= 3:
                 val_node = prop.getChild(2)
                 val_text = val_node.getText()
 
-                # ignorar si es un literal (cadena o numero) o variable escalar
                 is_literal = val_text.startswith(('"', "'")) or val_text.replace('.', '', 1).isdigit()
-                is_scalar = (val_text in self.symbol_table and self.symbol_table[val_text]["type"] == "scalar")
+                is_scalar = self.table.exists(val_text) and self.table.lookup(val_text).is_scalar()
 
                 if not is_literal and not is_scalar and val_text not in available_cols:
                     self.add_error(
-                        val_node, 
+                        val_node,
                         f"La columna '{val_text}' no existe en el dataset '{dataset_name}'."
                     )
         return None
+
+
+SemanticVisitor = SemanVisitor

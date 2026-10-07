@@ -5,8 +5,7 @@ from antlr4.error.ErrorListener import ErrorListener
 
 from src.generated.MiniRLexer import MiniRLexer
 from src.generated.MiniRParser import MiniRParser
-from src.semantic_visitor import SemanticVisitor
-
+from src.seman_visitor import SemanVisitor as SemanticVisitor
 
 # listener para capturar errores sintacticos sin detener el script
 class CustomSyntaxErrorListener(ErrorListener):
