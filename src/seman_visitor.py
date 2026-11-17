@@ -8,6 +8,9 @@ from src.symbol_table import SymbolTable, Symbol
 
 class SemanVisitor(MiniRVisitor):
     
+    # tipos de graficos soportados en mini-r
+    VALID_PLOTS = {"bar", "scatter", "line", "hist", "pie", "boxplot"}
+
     def __init__(self, base_path="."):
         super().__init__()
         self.base_path = base_path
@@ -80,9 +83,36 @@ class SemanVisitor(MiniRVisitor):
 
         return result
 
+    def check_division_by_zero(self, ctx):
+        """Error 7: Verifica division estatica por cero en expresiones."""
+        if ctx is None:
+            return
+
+        # comprobar si es expresion multiplicativa/division
+        if isinstance(ctx, MiniRParser.MulDivExprContext):
+            op_text = ctx.getChild(1).getText()
+            right_expr = ctx.expr(1)
+            if op_text in ("/", "%"):
+                # verificar si el operando derecho es un literal cero
+                if isinstance(right_expr, MiniRParser.AtomExprContext):
+                    primary = right_expr.primary()
+                    if primary.INT() and primary.INT().getText() == "0":
+                        self.add_error(ctx.getChild(1), "Division estatica por cero detectada.")
+                    elif primary.FLOAT() and float(primary.FLOAT().getText()) == 0.0:
+                        self.add_error(ctx.getChild(1), "Division estatica por cero detectada.")
+
+        # recorrer recursivamente subexpresiones
+        if hasattr(ctx, "children") and ctx.children:
+            for child in ctx.children:
+                if isinstance(child, ParserRuleContext):
+                    self.check_division_by_zero(child)
+
     def validate_expression(self, expr_ctx, in_dataset: bool = False):
         if expr_ctx is None:
             return
+
+        # verificar division estatica por cero
+        self.check_division_by_zero(expr_ctx)
 
         for id_node in self.extract_identifiers(expr_ctx):
             name = id_node.getText()
@@ -113,6 +143,13 @@ class SemanVisitor(MiniRVisitor):
 
     def visitLoadStmt(self, ctx: MiniRParser.LoadStmtContext):
         var_name = ctx.ID().getText()
+
+        # Error 5: Validar redefinicion incompatible de variable/dataset previo
+        if self.table.exists(var_name):
+            prev_symbol = self.table.lookup(var_name)
+            if prev_symbol.is_scalar():
+                self.add_error(ctx.ID(), f"No se puede redefinir la variable escalar '{var_name}' como un dataset.")
+
         raw_path = ctx.STRING().getText()
         file_path = raw_path.strip('"\'')
         full_path = os.path.join(self.base_path, file_path) if not os.path.isabs(file_path) else file_path
@@ -139,6 +176,13 @@ class SemanVisitor(MiniRVisitor):
 
     def visitAssignStmt(self, ctx: MiniRParser.AssignStmtContext):
         var_name = ctx.ID().getText()
+
+        # Error 5: Validar redefinicion incompatible (sobrescribir dataset con escalar)
+        if self.table.exists(var_name):
+            prev_symbol = self.table.lookup(var_name)
+            if prev_symbol.is_dataset():
+                self.add_error(ctx.ID(), f"No se puede redefinir el dataset '{var_name}' como una variable escalar.")
+
         self.validate_expression(ctx.expr(), in_dataset=False)
         self.table.declare(name=var_name, type_="scalar")
         return None
@@ -146,6 +190,12 @@ class SemanVisitor(MiniRVisitor):
     def visitTransformStmt(self, ctx: MiniRParser.TransformStmtContext):
         target_name = ctx.ID(0).getText()
         source_name = ctx.ID(1).getText()
+
+        # Error 5: Validar redefinicion del target si ya existia como escalar
+        if self.table.exists(target_name):
+            prev_target = self.table.lookup(target_name)
+            if prev_target.is_scalar():
+                self.add_error(ctx.ID(0), f"No se puede redefinir la variable escalar '{target_name}' como un dataset transformado.")
 
         # validar dataset en tabla de simbolos
         try:
@@ -232,7 +282,15 @@ class SemanVisitor(MiniRVisitor):
         return None
 
     def visitPlotStmt(self, ctx: MiniRParser.PlotStmtContext):
+        plot_type = ctx.ID(0).getText()
         dataset_name = ctx.ID(1).getText()
+
+        # Error 6A: Validar que el tipo de grafico sea soportado
+        if plot_type not in self.VALID_PLOTS:
+            self.add_error(
+                ctx.ID(0),
+                f"El tipo de grafico '{plot_type}' no es valido. Soportados: {sorted(list(self.VALID_PLOTS))}."
+            )
 
         # Validar dataset en la tabla de símbolos
         try:
@@ -246,24 +304,44 @@ class SemanVisitor(MiniRVisitor):
             return None
 
         available_cols = dataset_symbol.columns
-        if available_cols is None or not ctx.plotPropertyList():
-            return None
+        present_properties = set()
 
-        # Validar propiedades x e y
-        for prop in ctx.plotPropertyList().plotProperty():
-            prop_key = prop.ID(0).getText() if prop.ID(0) else ""
-            if prop_key in ("x", "y") and prop.getChildCount() >= 3:
-                val_node = prop.getChild(2)
-                val_text = val_node.getText()
+        if ctx.plotPropertyList():
+            for prop in ctx.plotPropertyList().plotProperty():
+                prop_key = prop.ID(0).getText() if prop.ID(0) else ""
+                present_properties.add(prop_key)
 
-                is_literal = val_text.startswith(('"', "'")) or val_text.replace('.', '', 1).isdigit()
-                is_scalar = self.table.exists(val_text) and self.table.lookup(val_text).is_scalar()
+                # Validar propiedades x e y contra las columnas del dataset
+                if prop_key in ("x", "y") and prop.getChildCount() >= 3:
+                    val_node = prop.getChild(2)
+                    val_text = val_node.getText()
 
-                if not is_literal and not is_scalar and val_text not in available_cols:
-                    self.add_error(
-                        val_node,
-                        f"La columna '{val_text}' no existe en el dataset '{dataset_name}'."
-                    )
+                    is_literal = val_text.startswith(('"', "'")) or val_text.replace('.', '', 1).isdigit()
+                    is_scalar = self.table.exists(val_text) and self.table.lookup(val_text).is_scalar()
+
+                    if available_cols is not None:
+                        if not is_literal and not is_scalar and val_text not in available_cols:
+                            self.add_error(
+                                val_node,
+                                f"La columna '{val_text}' no existe en el dataset '{dataset_name}'."
+                            )
+
+        # Error 6B: Validar propiedades requeridas segun el tipo de grafico
+        # scatter y line requieren estrictamente tanto 'x' como 'y'
+        if plot_type in ("scatter", "line"):
+            if "x" not in present_properties or "y" not in present_properties:
+                self.add_error(
+                    ctx.ID(0),
+                    f"El grafico '{plot_type}' requiere obligatoriamente las propiedades 'x' e 'y'."
+                )
+        # hist y pie requieren al menos 'x'
+        elif plot_type in ("hist", "boxplot"):
+            if "x" not in present_properties:
+                self.add_error(
+                    ctx.ID(0),
+                    f"El grafico '{plot_type}' requiere obligatoriamente la propiedad 'x'."
+                )
+
         return None
 
 
