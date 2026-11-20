@@ -8,7 +8,7 @@
 
 ## 1. Visión General de la Arquitectura
 
-El compilador de **Mini-R** está diseñado siguiendo la arquitectura clásica de compiladores en tres etapas principales: **Front-end**, **Middle-end (Semántica y Tabla de Símbolos)** y **Back-end** (proyectado para el Hito 3). Su objetivo es procesar scripts declarativos de manipulación y graficación de datos, validando preventivamente esquemas de datos, consistencia dimensional y reglas de tipado estático antes de la ejecución o generación de código.
+El compilador de **Mini-R** está diseñado siguiendo la arquitectura clásica de compiladores en tres etapas principales: **Front-end**, **Middle-end (Semántica y Tabla de Símbolos)** y **Back-end**. Su objetivo es procesar scripts declarativos de manipulación y graficación de datos, validando preventivamente esquemas de datos, consistencia dimensional y reglas de tipado estático antes de la ejecución o generación de código.
 
 ```mermaid
 flowchart TD
@@ -24,10 +24,10 @@ flowchart TD
         G[("Esquema CSV en Disco (data/*.csv)")] -.->|Lectura de Cabeceras| E
         E --> H{"¿Errores Semánticos?"}
         H -->|Sí| I["Reporte de Errores Semánticos (Línea / Columna)"]
-        H -->|No| J["AST Decorado y Validado"]
+        H -->|No| J["AST Validado"]
     end
 
-    subgraph BACKEND ["3. Back-end (Hito 3)"]
+    subgraph BACKEND ["3. Back-end"]
         J --> K["Generador de Código Intermedio / LLVM IR"]
         K --> L["Ejecutable / Runtime de Procesamiento"]
     end
