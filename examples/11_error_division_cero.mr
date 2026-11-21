@@ -1,0 +1,5 @@
+ventas = read("data/ventas.csv")
+
+// error semantico 7: division estatica por cero
+resumen = ventas:
+    add(promedio = total / 0)

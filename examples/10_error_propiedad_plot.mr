@@ -1,0 +1,7 @@
+ventas = read("data/ventas.csv")
+
+// error semantico 6b: scatter requiere obligatoriamente 'x' e 'y' (falta 'y')
+plot scatter(ventas) {
+    x: precio,
+    title: "Scatter sin coordenada Y"
+}

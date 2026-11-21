@@ -1,0 +1,4 @@
+ventas = read("data/ventas.csv")
+
+// error semantico 5: redefinicion incompatible (sobrescribir un dataset con un escalar)
+ventas = 500

@@ -1,0 +1,3 @@
+ventas = read("data/ventas.csv")
+plot hist(ventas) { x: total, title: "Distribucion de Totales" }
+plot pie(ventas) { x: producto, y: total, title: "Participacion por Producto" }

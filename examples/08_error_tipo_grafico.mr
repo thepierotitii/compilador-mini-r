@@ -1,0 +1,7 @@
+ventas = read("data/ventas.csv")
+
+// error semantico 6a: tipo de grafico no soportado por mini-r
+plot grafico_radar(ventas) {
+    x: producto,
+    title: "Grafico Invalido"
+}
